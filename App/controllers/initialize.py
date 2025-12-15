@@ -1,34 +1,66 @@
-from App.models import User, Student, Staff, Request
 from App.database import db
 
 
-def initialize_db(drop_first=True):
-    """Initialize the database and seed sample data.
+# Initialize the database and seed sample data.
+# Args: drop_first (bool): if True, drop all tables before creating them.
+# Returns a dict with lists of created record IDs.
+def initialize(drop_first=True):
+    # Import models here to avoid circular imports
+    from App.models import Student, Staff, RequestHistory, LoggedHoursHistory, ActivityHistory, Accolade, AccoladeHistory, Milestone, MilestoneHistory
+    from datetime import datetime, timezone
+    import random
 
-    Args:
-        drop_first (bool): if True, drop all tables before creating them.
-
-    Returns a dict with lists of created record IDs.
-    """
     if drop_first:
         db.drop_all()
     db.create_all()
 
-    # Sample students (username, email, password)
-    students_data = [
-        ("alice", "alice.smith@gmail.com", "password1"),
-        ("bob", "bob.jones@hotmail.com", "password2"),
-        ("charlie", "charlie.brown@gmail.com", "password3"),
-        ("diana", "diana.lee@hotmail.com", "password4"),
-        ("eve", "eve.patel@gmail.com", "password5"),
-    ]
+    # Random name generation
+    first_names = ["Aliyah", "Bob", "Bobart", "Bobrick", "Bobson", "Deen", "Adam", "Michel", 
+                   "Isabella", "Joe", "Kate", "Lily", "Ivy", "Rose", "Mia", "April", "May", 
+                   "June", "Summer", "August", "Subaru", "Rem", "Emilia", "Rudeus", "Itachi", "Ryan", 
+                   "Aaron", "Thanos", "Ching", "Shichellssichells", "Mandoes", "Joe"]
+    last_names = ["Ali", "Maraj", "Maharaj", "Singh", "Maharajsingh", "King", "Queen", "Sanchez", 
+                  "Mohammed", "Amoroso-Centeno", "White", "Black", "Smith", "Dickinson", "Harris", 
+                  "Alwahree", "Wednesday", "Martini", "Gosling", "Chong", "Kent", "Rodriguez", 
+                  "Walker", "Runner", "Sitter", "Uzimaki", "Natsuki", "Uchiha", "Bidehschischore", "Mendez", "Who"]
+    services = ["Computer Lab", "Cleanup", "Classroom Setup", "Tax Fraud"]
+    accolade_description = ["Outstanding Service", "Leadership", "Community Impact", "Excellence", "Dedication", 
+                            "Teamwork", "Commitment", "Tax Fraud"]
 
-    # Sample staff (username, email, password)
-    staff_data = [
-        ("msmith", "mr.smith@gmail.com", "staffpass1"),
-        ("mjohnson", "ms.johnson@hotmail.com", "staffpass2"),
-        ("mlee", "mr.lee@gmail.com", "staffpass3"),
-    ]
+    # Add test student
+    students_data = [('teststudent', 'test@student.com', 'password')]
+
+    # Generate 9 random students (since we added 1 test)
+    used_names = {'teststudent'}
+    for i in range(10):
+        while True:
+            first = random.choice(first_names)
+            last = random.choice(last_names)
+            username = first.lower()
+            if username not in used_names:
+                used_names.add(username)
+                email = f"{first.lower()}.{last.lower()}@{random.choice(['gmail.com', 'outlook.com'])}"
+                password = f"password{i+1}"
+                students_data.append((username, email, password))
+                break
+
+    # Add test staff
+    staff_data = [('teststaff', 'test@staff.com', 'password')]
+
+    # Generate 9 random staff (since we added 1 test)
+    used_names = {'teststaff'}
+    for i in range(10):
+        while True:
+            first = random.choice(first_names)
+            last = random.choice(last_names)
+            prefix = random.choice(["Mr_", "Mrs_", "Dr_"])
+            username = prefix + first.lower()
+            if username not in used_names:
+                used_names.add(username)
+                email = f"{prefix}{first.lower()}.{last.lower()}@{random.choice(['gmail.com', 'outlook.com'])}"
+                password = f"staffpass{i+1}"
+                staff_data.append((username, email, password))
+                break
 
     students = []
     for username, email, pwd in students_data:
@@ -44,120 +76,160 @@ def initialize_db(drop_first=True):
 
     db.session.commit()
 
-    # Create 4 requests for first 4 students
-    import random
+    # Create 100 requests for random students and staff
     requests = []
-    for i in range(4):
-        student = students[i]
-        hours = random.choice([5, 10, 12.5, 8])
-        req = Request(student_id=student.user_id, hours=hours, status='pending')
+    request_date = datetime.now(timezone.utc)
+
+    for i in range(100):
+        student = random.choice(students)
+        staff_member = random.choice(staff_members)
+        hours = round(random.uniform(1, 12))
+
+        # Create activity history record
+        activity = ActivityHistory(student_id=student.user_id)
+        db.session.add(activity)
+        db.session.flush()  # Get the activity ID
+
+        # Create request linked to activity
+        req = RequestHistory(
+            student_id=student.user_id,
+            staff_id=staff_member.user_id,
+            service=random.choice(services),
+            hours=hours,
+            date_completed=request_date
+        )
+        req.activity_id = activity.id
         requests.append(req)
         db.session.add(req)
 
     db.session.commit()
 
-    # Add logged hours
-    from App.models import LoggedHours
-
-    # Approve first two requests and create logged entries
-    for i, req in enumerate(requests[:2]):
+    # Approve 60 requests, deny 20, leave 20 pending
+    for i, req in enumerate(requests[:60]):
         req.status = 'approved'
-        staff_member = staff_members[i % len(staff_members)]
-        log = LoggedHours(student_id=req.student_id, staff_id=staff_member.user_id, hours=req.hours, status='approved')
+        staff_member = Staff.query.get(req.staff_id)
+
+        # Create activity history for logged hours
+        activity = ActivityHistory(student_id=req.student_id)
+        db.session.add(activity)
+        db.session.flush()
+
+        log = LoggedHoursHistory(
+            student_id=req.student_id,
+            staff_id=staff_member.user_id,
+            service=req.service,
+            hours=req.hours,
+            before=0.0,
+            after=req.hours,
+            date_completed=request_date
+        )
+        log.activity_id = activity.id
         db.session.add(log)
 
-    # Deny the third request (if present)
-    if len(requests) >= 3:
-        requests[2].status = 'denied'
+    for req in requests[60:80]:
+        req.status = 'denied'
 
-    # Leave the fourth request pending
+    db.session.commit()
 
-    # Add 3 extra logged hours entries (to reach 6 total logged hours)
-    extra_logs = [
-        (students[0].user_id, staff_members[0].user_id, 3.5, 'approved'),
-        (students[1].user_id, staff_members[1].user_id, 7.0, 'approved'),
-        (students[2].user_id, staff_members[2].user_id, 4.0, 'approved'),
-    ]
-    for student_id, staff_id, hours, status in extra_logs:
-        log = LoggedHours(student_id=student_id, staff_id=staff_id, hours=hours, status=status)
+    # Update student hours after approved requests
+    for student in students:
+        student.calculate_total_hours()
+
+    # Add 10 more logged hours entries for various students
+    for i in range(10):
+        student = random.choice(students)
+        staff_member = random.choice(staff_members)
+        hours = round(random.uniform(1, 12))
+
+        activity = ActivityHistory(student_id=student.user_id)
+        db.session.add(activity)
+        db.session.flush()
+
+        log = LoggedHoursHistory(
+            student_id=student.user_id,
+            staff_id=staff_member.user_id,
+            service=random.choice(services),
+            hours=hours,
+            before=0.0,
+            after=hours,
+            date_completed=request_date
+        )
+        log.activity_id = activity.id
         db.session.add(log)
 
     db.session.commit()
+
+    # Create 30 unique accolades
+    accolades = []
+    used_descriptions = set()
+    for i in range(30):
+        staff_member = random.choice(staff_members)
+        description = f"Accolade {i+1}: {random.choice(accolade_description)}"
+        while description in used_descriptions:
+            description = f"Accolade {i+1}: {random.choice(accolade_description)}"
+        used_descriptions.add(description)
+        accolade = Accolade(staff_id=staff_member.user_id, description=description)
+        accolades.append(accolade)
+        db.session.add(accolade)
+
+    db.session.commit()
+
+    # Assign 30 accolades to random students
+    for i in range(30):
+        accolade = random.choice(accolades)
+        student = random.choice(students)
+        staff_member = random.choice(staff_members)
+
+        # Check if already assigned
+        existing = AccoladeHistory.query.filter_by(accolade_id=accolade.id, student_id=student.user_id).first()
+        if not existing:
+            # Create activity history
+            activity = ActivityHistory(student_id=student.user_id)
+            db.session.add(activity)
+            db.session.flush()
+
+            # Create history
+            history = AccoladeHistory(
+                accolade_id=accolade.id,
+                student_id=student.user_id,
+                staff_id=staff_member.user_id,
+                description=accolade.description
+            )
+            history.activity_id = activity.id
+            db.session.add(history)
+
+            # Add to accolade students
+            accolade.add_student(student.user_id)
+
+    db.session.commit()
+
+    # Create 10 milestones
+    milestones = []
+    milestone_hours = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    for hours in milestone_hours:
+        milestone = Milestone(hours=hours)
+        milestones.append(milestone)
+        db.session.add(milestone)
+
+    db.session.commit()
+
+
+    # Update student hours and ranks
+    for student in students:
+        student.calculate_total_hours()
 
     # Return ids for reference
     result = {
         'students': [s.user_id for s in students],
         'staff': [st.user_id for st in staff_members],
-        'requests': [r.id for r in Request.query.order_by(Request.id).all()],
-        'logged_hours': [l.id for l in LoggedHours.query.order_by(LoggedHours.id).all()]
+        'requests': [r.id for r in RequestHistory.query.order_by(RequestHistory.id).all()],
+        'logged_hours': [l.id for l in LoggedHoursHistory.query.order_by(LoggedHoursHistory.id).all()],
+        'accolades': [a.id for a in Accolade.query.order_by(Accolade.id).all()],
+        'accolade_histories': [ah.id for ah in AccoladeHistory.query.order_by(AccoladeHistory.id).all()],
+        'milestones': [m.id for m in Milestone.query.order_by(Milestone.id).all()],
+        'milestone_histories': [mh.id for mh in MilestoneHistory.query.order_by(MilestoneHistory.id).all()],
+        'activity_histories': [ah.id for ah in ActivityHistory.query.order_by(ActivityHistory.id).all()]
     }
 
     return result
-
-
-def initialize(drop_first=True):
-    """Compatibility wrapper used by CLI (keeps previous name `initialize`)."""
-    return initialize_db(drop_first=drop_first)
-
-#from App.models import User,Student, Staff, Request
-#from App.database import db
-
-
-# def initialize():
-
-
-#     db.drop_all()
-#     db.create_all()
-#     #create_user('bob', 'bobpass')
-
-#     # Add sample students
-
-#     students = [
-#         Student(name='Alice', email='alice.smith@gmail.com'),
-#         Student(name='Bob', email='bob.jones@hotmail.com'),
-#         Student(name='Charlie', email='charlie.brown@gmail.com'),
-#         Student(name='Diana', email='diana.lee@hotmail.com'),
-#         Student(name='Eve', email='eve.patel@gmail.com'),
-#         Student(name='Frank', email='frank.miller@gmail.com'),
-#         Student(name='Grace', email='grace.wilson@hotmail.com'),
-#     ]
-#     db.session.add_all(students)
-#     db.session.commit()
-
-#     # Add sample staff members
-#     staff_members = [
-#         Staff(name='Mr. Smith', email='mr.smith@gmail.com'),
-#         Staff(name='Ms. Johnson', email='ms.johnson@hotmail.com'),
-#         Staff(name='Mr. Lee', email='mr.lee@gmail.com'),
-        
-#     ]
-#     for staff_member in staff_members:
-#         db.session.add(staff_member)
-#     db.session.commit()
-
-#     # Add sample requests for students
-#     all_students = Student.query.order_by(Student.id).all()
-#     requests = []
-#     import random
-#     for i, student in enumerate(all_students):
-#         hours = random.randint(10, 60)
-#         req = Request(student_id=student.id, hours=hours, status='pending')
-#         requests.append(req)
-#     db.session.add_all(requests)
-#     db.session.commit()
-
-#     # Add sample logged hours (approve first 2 requests by first 3 staff)
-#     from App.models import LoggedHours
-#     all_staff = Staff.query.order_by(Staff.id).all()
-#     for i, req in enumerate(requests[:3]):
-#         staff_member = all_staff[i % len(all_staff)]
-#         if i < 2:
-#             req.status = 'approved'
-#             log = LoggedHours(student_id=req.student_id, staff_id=staff_member.id, hours=req.hours, status='approved')
-#             db.session.add(log)
-#         else:
-#             req.status = 'denied'
-#     db.session.commit()
-
-    
     
